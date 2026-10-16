@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import shutil
 import socket
 import subprocess
@@ -21,7 +22,7 @@ import winreg
 
 import websocket
 
-PORTAL = 'http://10.0.253.14/1.htm?url=http://www.msftconnecttest.com/redirect'
+PORTAL = 'http://10.0.253.14/?url=http://www.msftconnecttest.com/redirect'
 HOST = '10.0.253.14'
 APP_ID = 'CampusAutoLogin_10_0_253_14'
 DATA = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / APP_ID
@@ -135,6 +136,19 @@ def online():
         return False
 
 
+def campus_online():
+    """Read-only status endpoint observed in the campus portal's a41.js."""
+    try:
+        with OPENER.open('http://' + HOST + '/drcom/chkstatus?callback=campusStatus', timeout=3) as r:
+            if urllib.parse.urlsplit(r.url).hostname != HOST:
+                return False
+            text = r.read(65536).decode('utf-8', errors='replace')
+        match = re.search(r'\{.*\}', text, re.S)
+        return bool(match and json.loads(match.group()).get('result') == 1)
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+
+
 class Browser:
     """One isolated browser instance; never touches the user's regular profile."""
     def __init__(self, visible=False, executable=None):
@@ -149,7 +163,7 @@ class Browser:
         try:
             args = [self.executable or browser_path(), '--remote-debugging-port=0',
                     '--remote-debugging-address=127.0.0.1', '--user-data-dir=' + str(self.profile),
-                    '--no-first-run', '--no-default-browser-check', '--disable-sync',
+                    '--no-first-run', '--no-default-browser-check', '--disable-sync', '--no-proxy-server',
                     '--disable-extensions', '--window-size=1050,800', 'about:blank']
             if not self.visible:
                 args.insert(-1, '--headless=new')
@@ -239,8 +253,8 @@ const sameCarrier = (s, desired) => {
   s = norm(s); desired = norm(desired);
   if (!s || !desired) return false;
   if (s === desired) return true;
-  for (const group of [['移动','中国移动','cmcc'],['联通','中国联通','unicom'],
-                        ['电信','中国电信','telecom'],['校园网','校园','教育网']]) {
+  for (const group of [['移动','中国移动','校园移动','cmcc'],['联通','中国联通','校园联通','unicom'],
+                        ['电信','中国电信','校园电信','telecom'],['校园网','校园','教育网','校园用户']]) {
     if (group.includes(desired) && group.includes(s)) return true;
   }
   return false;
@@ -333,6 +347,9 @@ def run_login(account, log, auto=False, visible=False, internet_check=online):
     if internet_check():
         log('当前已能访问互联网，无需重复登录。')
         return True
+    if campus_online():
+        log('校园认证显示已登录；外网探测未通过，跳过重复认证。')
+        return True
     if auto:
         log('等待校园网络就绪，最长 10 分钟。')
         deadline = time.monotonic() + 600
@@ -364,6 +381,9 @@ def run_login(account, log, auto=False, visible=False, internet_check=online):
                 return True
             time.sleep(1)
         else:
+            if campus_online():
+                log('校园认证显示已登录，跳过重复认证。')
+                return True
             raise RuntimeError('登录页没有就绪。请勾选“显示登录浏览器”查看页面，或发送登录页截图以便适配。')
         result = browser.evaluate(dom_script('carrier', account))
         if result.get('status') == 'carrier-opened':
@@ -381,6 +401,9 @@ def run_login(account, log, auto=False, visible=False, internet_check=online):
             time.sleep(2)
             if internet_check():
                 log('登录成功：已通过外网连通性验证。')
+                return True
+            if campus_online():
+                log('登录成功：校园认证显示已在线；外网探测暂未通过。')
                 return True
         if visible:
             log('尚未验证联网。浏览器保留 60 秒，请查看页面提示。')
@@ -436,7 +459,7 @@ def gui():
     for row, (label, variable) in enumerate([('账号', user), ('密码', password), ('运营商', operator)]):
         ttk.Label(fields, text=label).grid(row=row,column=0,sticky='w',padx=(0,15),pady=7)
         if row == 2:
-            entry = ttk.Combobox(fields, textvariable=variable, values=['中国移动','中国联通','中国电信','校园网',''])
+            entry = ttk.Combobox(fields, textvariable=variable, values=['中国移动','中国电信','中国联通','教师专用','校园网',''])
         else:
             entry = ttk.Entry(fields, textvariable=variable, show='●' if row == 1 else '')
         entry.grid(row=row,column=1,sticky='ew',pady=7)

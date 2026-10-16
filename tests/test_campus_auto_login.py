@@ -8,6 +8,17 @@ import campus_auto_login as app
 
 
 class HelperTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch.object(app, 'campus_online', return_value=False)
+        self.campus = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_campus_authenticated_does_not_submit(self):
+        self.campus.return_value = True
+        with patch.object(app, 'Browser') as browser:
+            self.assertTrue(app.run_login({}, lambda s:None, internet_check=lambda:False))
+            browser.assert_not_called()
+
     def test_dpapi_roundtrip(self):
         raw = 'fake-password-测试-<&"\\'.encode()
         encrypted = app.protect(raw)
@@ -133,6 +144,18 @@ class BrowserTests(unittest.TestCase):
         self.assertEqual(self.js('carrier',{'operator':'中国移动'})['status'],'carrier-opened')
         self.assertEqual(self.js('carrier',{'operator':'中国移动','opened':True})['status'],'carrier-ready')
         self.assertEqual(self.browser.evaluate('window.result'),'cmcc')
+
+    def test_observed_drcom_form_structure(self):
+        # Synthetic fixture based on observed field names; no campus account data or assets.
+        self.load('''<div style="display:none"><form name="f0"><input type="hidden" name="DDDDD"><input type="hidden" name="upass"></form></div>
+        <form name="f3" onsubmit="window.result={user:this.DDDDD.value,password:this.upass.value,isp:document.querySelector('[name=ISP_select]').value};return false">
+        <input type="submit" name="0MKKey" value="登录"><input name="DDDDD" placeholder="账号"><input name="upass" type="password">
+        <input name="captcha" placeholder="随机验证码" style="display:none"></form>
+        <select name="ISP_select"><option value="-1">请选择运营商</option><option value="1">中国移动</option><option value="2">中国电信</option><option value="3">中国联通</option><option value="0">教师专用</option></select>''')
+        account = {'username':'fake-campus-user','password':'fake-campus-pass','operator':'中国移动'}
+        self.assertEqual(self.js('carrier',account)['status'],'carrier-ready')
+        self.assertEqual(self.js('submit',account)['status'],'submitted')
+        self.assertEqual(self.browser.evaluate('window.result'),{'user':account['username'],'password':account['password'],'isp':'1'})
 
 
 if __name__ == '__main__':
