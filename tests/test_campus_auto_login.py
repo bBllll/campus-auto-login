@@ -1,0 +1,139 @@
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import campus_auto_login as app
+
+
+class HelperTests(unittest.TestCase):
+    def test_dpapi_roundtrip(self):
+        raw = 'fake-password-测试-<&"\\'.encode()
+        encrypted = app.protect(raw)
+        self.assertNotIn(raw, encrypted)
+        self.assertEqual(app.protect(encrypted, decrypt=True), raw)
+
+    def test_saved_account_is_encrypted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(app, 'DATA', root), patch.object(app, 'VAULT', root / 'account.dat'):
+                account = {'username':'fake-account','password':'fake-passphrase','operator':'中国移动'}
+                app.save_account(account)
+                self.assertNotIn(b'fake-passphrase', app.VAULT.read_bytes())
+                self.assertEqual(account, app.load_account())
+
+    def test_disconnected_does_not_submit(self):
+        with patch.object(app, 'portal_reachable', return_value=False), patch.object(app, 'Browser') as browser:
+            with self.assertRaisesRegex(RuntimeError, '无法访问'):
+                app.run_login({}, lambda s:None, internet_check=lambda:False)
+            browser.assert_not_called()
+
+    def test_already_online_does_not_submit(self):
+        with patch.object(app, 'Browser') as browser:
+            self.assertTrue(app.run_login({}, lambda s:None, internet_check=lambda:True))
+            browser.assert_not_called()
+
+    def test_failed_login_submits_only_once(self):
+        with patch.object(app, 'Browser') as browser_class, patch.object(app, 'portal_reachable', return_value=True), patch.object(app.time, 'sleep'):
+            browser = browser_class.return_value.__enter__.return_value
+            browser.evaluate.side_effect = [{'status':'ready'}, {'status':'carrier-ready'}, {'status':'submitted'}]
+            with self.assertRaisesRegex(RuntimeError, '已提交一次'):
+                app.run_login({'username':'fake','password':'fake','operator':''},lambda s:None,internet_check=lambda:False)
+            actions = [call.args[0] for call in browser.evaluate.call_args_list]
+            self.assertEqual(sum('"action": "submit"' in js for js in actions), 1)
+
+    def test_gui_constructs_with_configuration_controls(self):
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        inspected = []
+        def inspect():
+            root.update_idletasks()
+            widgets = []
+            def walk(w):
+                widgets.append(w)
+                for child in w.winfo_children():
+                    walk(child)
+            walk(root)
+            labels = [str(w.cget('text')) for w in widgets if 'text' in w.keys()]
+            self.assertIn('保存并测试登录', labels)
+            self.assertIn('删除配置 / 关闭自启', labels)
+            self.assertEqual(len([w for w in widgets if w.winfo_class() == 'TEntry']), 2)
+            self.assertEqual(len([w for w in widgets if w.winfo_class() == 'TCombobox']), 1)
+            inspected.append(True)
+        try:
+            with patch('tkinter.Tk', return_value=root), patch.object(root, 'mainloop', side_effect=inspect), patch.object(app, 'load_account', return_value=None), patch.object(app, 'startup_enabled', return_value=False):
+                app.gui()
+            self.assertTrue(inspected)
+        finally:
+            root.destroy()
+
+
+class BrowserTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.path = Path(cls.temp.name) / 'portal.html'
+        cls.browser = app.Browser().__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.temp.cleanup()
+
+    def load(self, body):
+        self.path.write_text('<!DOCTYPE html><meta charset="UTF-8">'+body,encoding='utf-8')
+        self.browser.call('Page.navigate', {'url':self.path.as_uri()})
+        import time
+        for _ in range(100):
+            if self.browser.evaluate('document.readyState') == 'complete':
+                break
+            time.sleep(.05)
+        self.browser.evaluate('window.result = null')
+
+    def js(self, action, account=None):
+        return self.browser.evaluate(app.dom_script(action, account, allowed_host=''))
+
+    def test_select_carrier_and_special_password(self):
+        self.load('''<input name="DDDDD"><input name="upass" type="password">
+        <select id="carrier"><option value="t">中国电信</option><option value="u">中国联通</option></select>
+        <input type="button" value="登录" onclick="window.result={username:document.querySelector('[name=DDDDD]').value,password:document.querySelector('[name=upass]').value,carrier:document.querySelector('select').value}">''')
+        a = {'username':'fake <& account','password':"fake ' \\ \" </script> 口令",'operator':'联通'}
+        self.assertEqual(self.js('inspect')['status'],'ready')
+        self.assertEqual(self.js('carrier',a)['status'],'carrier-ready')
+        self.assertEqual(self.js('submit',a)['status'],'submitted')
+        actual = self.browser.evaluate('window.result')
+        self.assertEqual(actual,dict(username=a['username'],password=a['password'],carrier='u'))
+
+    def test_captcha_stops(self):
+        self.load('<input name="username"><input type="password"><input placeholder="验证码"><button onclick="result=true">登录</button>')
+        self.assertEqual(self.js('submit',{'username':'fake','password':'fake'})['status'],'captcha')
+        self.assertIsNone(self.browser.evaluate('window.result'))
+        self.assertEqual(self.browser.evaluate('document.querySelector("input[type=password]").value'),'')
+
+    def test_wrong_origin_stops(self):
+        self.load('<input name="username"><input type="password"><button>登录</button>')
+        result = self.browser.evaluate(app.dom_script('submit',{'username':'fake','password':'fake'}))
+        self.assertEqual(result['status'],'wrong-origin')
+        self.assertEqual(self.browser.evaluate('document.querySelector("input[type=password]").value'),'')
+
+    def test_missing_carrier_stops(self):
+        self.load('<input name="username"><input type="password"><select><option>中国电信</option></select><button>登录</button>')
+        self.assertEqual(self.js('carrier',{'operator':'中国移动'})['status'],'carrier-missing')
+
+    def test_radio_carrier(self):
+        self.load('<input name="username"><input type="password"><label><input type="radio" name="carrier" value="u">中国联通</label><button>登录</button>')
+        self.assertEqual(self.js('carrier',{'operator':'联通'})['status'],'carrier-ready')
+        self.assertTrue(self.browser.evaluate('document.querySelector("input[type=radio]").checked'))
+
+    def test_custom_dropdown(self):
+        self.load('''<input name="username"><input type="password"><button onclick="document.querySelector('ul').style.display='block'">中国电信</button>
+        <ul style="display:none"><li onclick="window.result='cmcc'">中国移动</li></ul><button>登录</button>''')
+        self.assertEqual(self.js('carrier',{'operator':'中国移动'})['status'],'carrier-opened')
+        self.assertEqual(self.js('carrier',{'operator':'中国移动','opened':True})['status'],'carrier-ready')
+        self.assertEqual(self.browser.evaluate('window.result'),'cmcc')
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
