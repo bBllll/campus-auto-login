@@ -55,30 +55,39 @@ class HelperTests(unittest.TestCase):
             self.assertEqual(sum('"action": "submit"' in js for js in actions), 1)
 
     def test_gui_constructs_with_configuration_controls(self):
-        import tkinter as tk
-        root = tk.Tk()
-        root.withdraw()
-        inspected = []
-        def inspect():
-            root.update_idletasks()
-            widgets = []
-            def walk(w):
-                widgets.append(w)
-                for child in w.winfo_children():
-                    walk(child)
-            walk(root)
-            labels = [str(w.cget('text')) for w in widgets if 'text' in w.keys()]
-            self.assertIn('保存并测试登录', labels)
-            self.assertIn('删除配置 / 关闭自启', labels)
-            self.assertEqual(len([w for w in widgets if w.winfo_class() == 'TEntry']), 2)
-            self.assertEqual(len([w for w in widgets if w.winfo_class() == 'TCombobox']), 1)
-            inspected.append(True)
+        from desktop_ui import CampusWindow
+        window = CampusWindow(app, load_saved=False)
         try:
-            with patch('tkinter.Tk', return_value=root), patch.object(root, 'mainloop', side_effect=inspect), patch.object(app, 'load_account', return_value=None), patch.object(app, 'startup_enabled', return_value=False):
-                app.gui()
-            self.assertTrue(inspected)
+            window.after(300, window.quit)
+            window.mainloop()
+            self.assertEqual(window.test_button.cget('text'), '保存并连接')
+            self.assertEqual(window.save_button.cget('text'), '保存设置')
+            self.assertIn('中国移动', window.operator_entry.cget('values'))
+            self.assertEqual(window.password_entry.cget('show'), '●')
+            self.assertGreater(window.account_entry.winfo_width(), 200)
+            self.assertLess(window.test_button.winfo_rootx() + window.test_button.winfo_width(), window.winfo_rootx() + window.winfo_width())
+            self.assertLess(window.operator_entry.winfo_rooty() + window.operator_entry.winfo_height(), window.status.winfo_rooty())
         finally:
-            root.destroy()
+            window.destroy()
+
+    def test_password_visibility_and_saving_preferences(self):
+        from desktop_ui import CampusWindow
+        with patch.object(app, 'save_account') as save, patch.object(app, 'set_startup') as startup, patch.object(app, 'log_file'):
+            window = CampusWindow(app, load_saved=False)
+            try:
+                window.username.set('fake-ui-user')
+                window.password.set('fake-ui-password')
+                window.operator.set('中国联通')
+                window.toggle_password()
+                self.assertEqual(window.password_entry.cget('show'), '')
+                window.toggle_password()
+                self.assertEqual(window.password_entry.cget('show'), '●')
+                window.autostart.set(False)
+                window.save()
+                save.assert_called_once_with({'username':'fake-ui-user','password':'fake-ui-password','operator':'中国联通'})
+                startup.assert_called_once_with(False)
+            finally:
+                window.destroy()
 
 
 class BrowserTests(unittest.TestCase):

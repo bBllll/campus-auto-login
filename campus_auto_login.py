@@ -6,14 +6,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import queue
 import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import urllib.error
 import urllib.parse
@@ -437,128 +435,8 @@ def exclusive_run():
 
 
 def gui():
-    import tkinter as tk
-    from tkinter import ttk, messagebox
-    root = tk.Tk()
-    root.title('校园网自动登录')
-    root.geometry('620x570')
-    root.minsize(600, 550)
-    root.option_add('*Font', ('Microsoft YaHei UI', 10))
-    frame = ttk.Frame(root, padding=22)
-    frame.pack(fill='both', expand=True)
-    ttk.Label(frame, text='校园网自动登录', font=('Microsoft YaHei UI', 18, 'bold')).pack(anchor='w')
-    ttk.Label(frame, text='配置一次，登录 Windows 后自动连接校园网。').pack(anchor='w', pady=(5,15))
-    fields = ttk.Frame(frame)
-    fields.pack(fill='x')
-    fields.columnconfigure(1, weight=1)
-    user = tk.StringVar()
-    password = tk.StringVar()
-    operator = tk.StringVar(value='中国移动')
-    start = tk.BooleanVar(value=startup_enabled() or not VAULT.exists())
-    show = tk.BooleanVar(value=False)
-    for row, (label, variable) in enumerate([('账号', user), ('密码', password), ('运营商', operator)]):
-        ttk.Label(fields, text=label).grid(row=row,column=0,sticky='w',padx=(0,15),pady=7)
-        if row == 2:
-            entry = ttk.Combobox(fields, textvariable=variable, values=['中国移动','中国电信','中国联通','教师专用','校园网',''])
-        else:
-            entry = ttk.Entry(fields, textvariable=variable, show='●' if row == 1 else '')
-        entry.grid(row=row,column=1,sticky='ew',pady=7)
-    ttk.Label(frame,text='运营商按网页名称填写；留空表示保留网页默认选择。', foreground='#555555').pack(anchor='w',pady=(3,9))
-    ttk.Checkbutton(frame,text='登录 Windows 后自动连接（无需管理员）',variable=start).pack(anchor='w')
-    ttk.Checkbutton(frame,text='测试时显示登录浏览器，便于查看网页提示',variable=show).pack(anchor='w',pady=5)
-    buttons = ttk.Frame(frame)
-    buttons.pack(fill='x',pady=12)
-    status = tk.Text(frame,height=8,wrap='word',state='disabled',font=('Microsoft YaHei UI',9))
-    status.pack(fill='both',expand=True)
-    ttk.Label(frame,text='账号密码仅在本机加密保存。自动登录每次最多提交一次。',foreground='#555555').pack(anchor='w',pady=(10,0))
-    messages = queue.Queue()
-    busy = [False]
-    def log(message):
-        messages.put(message)
-        log_file(message)
-    try:
-        old = load_account()
-        if old:
-            user.set(old.get('username',''))
-            password.set(old.get('password',''))
-            operator.set(old.get('operator',''))
-    except Exception:
-        messages.put('原配置无法解密，请重新填写账号密码。')
-    def read_fields():
-        if not user.get().strip() or not password.get():
-            raise ValueError('请填写账号和密码。')
-        return {'username': user.get().strip(), 'password': password.get(), 'operator':operator.get().strip()}
-    def save():
-        try:
-            account = read_fields()
-            save_account(account)
-            set_startup(start.get())
-            log('配置已加密保存。' + ('已开启开机登录。' if start.get() else '开机登录未开启。'))
-            return account
-        except Exception as e:
-            messagebox.showerror('未能保存', str(e))
-    def test():
-        if busy[0]:
-            return
-        account = save()
-        if not account:
-            return
-        visible = show.get()
-        busy[0] = True
-        test_button.config(state='disabled')
-        def worker():
-            handle = None
-            try:
-                handle = exclusive_run()
-                if handle is None:
-                    log('已有登录任务正在运行，请稍后重试。')
-                    return
-                run_login(account, log, visible=visible)
-            except Exception as e:
-                # Exceptions from the network/debug socket may include data. Only use our safe messages.
-                log(str(e) if isinstance(e, RuntimeError) else '操作失败，请关闭测试浏览器后重试。')
-            finally:
-                if handle:
-                    ctypes.windll.kernel32.CloseHandle(wintypes.HANDLE(handle))
-                messages.put(None)
-        threading.Thread(target=worker,daemon=True).start()
-    def remove():
-        if busy[0]:
-            messagebox.showinfo('请稍候','请等待当前登录测试结束，再删除配置。')
-            return
-        set_startup(False)
-        start.set(False)
-        VAULT.unlink(missing_ok=True)
-        password.set('')
-        log('已删除本机账号密码，并关闭开机登录。')
-    ttk.Button(buttons,text='保存配置',command=save).pack(side='left')
-    test_button = ttk.Button(buttons,text='保存并测试登录',command=test)
-    test_button.pack(side='left',padx=8)
-    ttk.Button(buttons,text='删除配置 / 关闭自启',command=remove).pack(side='right')
-    def pump():
-        while True:
-            try:
-                item = messages.get_nowait()
-            except queue.Empty:
-                break
-            if item is None:
-                busy[0] = False
-                test_button.config(state='normal')
-            else:
-                status.config(state='normal')
-                status.insert('end', time.strftime('%H:%M:%S ') + item + '\n')
-                status.see('end')
-                status.config(state='disabled')
-        root.after(150,pump)
-    def close():
-        if busy[0]:
-            messagebox.showinfo('正在测试','请等待登录测试结束后关闭窗口，以便程序清理临时浏览器。')
-        else:
-            root.destroy()
-    root.protocol('WM_DELETE_WINDOW',close)
-    messages.put('请先连接校园网络。账号写法与手动登录时一致。')
-    root.after(150,pump)
-    root.mainloop()
+    from desktop_ui import launch
+    launch(sys.modules[__name__])
 
 
 def main():
