@@ -15,5 +15,6 @@ dist/
 account.json
 credentials.json
 config.json
+ui-preferences.json
 DevToolsActivePort
 campus-login-*/

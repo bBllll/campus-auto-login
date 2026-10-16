@@ -42,7 +42,7 @@ class Motion:
         if self.closed:
             return
         started = self.clock()
-        job = {'after': None}
+        job = {'after': None, 'finish': lambda: (frame(1), done() if done else None)}
         self.jobs[key] = job
         def tick():
             if self.closed or self.jobs.get(key) is not job:
@@ -94,3 +94,14 @@ class Motion:
         self.closed = True
         for key in list(self.jobs):
             self.cancel(key)
+
+    def set_reduced(self, reduced):
+        self.reduced = bool(reduced)
+        if self.reduced:
+            for key, job in list(self.jobs.items()):
+                if job.get('finish'):
+                    self.cancel(key)
+                    try:
+                        job['finish']()
+                    except tk.TclError:
+                        pass

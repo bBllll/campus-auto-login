@@ -1,6 +1,7 @@
 """Quiet, light desktop UI inspired by Material's spacing and controls."""
 import ctypes
 from ctypes import wintypes
+import json
 from pathlib import Path
 import queue
 import threading
@@ -35,6 +36,13 @@ class CampusWindow(ctk.CTk):
         self.icon_path = str(assets / 'app-icon.ico')
         self.iconbitmap(default=self.icon_path)
         self.api = api
+        if load_saved:
+            try:
+                preferences = json.loads((api.DATA / 'ui-preferences.json').read_text(encoding='utf-8'))
+                if isinstance(preferences.get('animations'), bool):
+                    self.motion.set_reduced(not preferences['animations'])
+            except (OSError, ValueError, AttributeError):
+                pass
         self.title('校园网自动登录')
         area = wintypes.RECT()
         ctypes.windll.user32.SystemParametersInfoW(48, 0, ctypes.byref(area), 0)
@@ -55,6 +63,8 @@ class CampusWindow(ctk.CTk):
         self.operator = tk.StringVar(value='中国移动')
         self.autostart = tk.BooleanVar(value=(api.startup_enabled() or not api.VAULT.exists()) if load_saved else True)
         self.show_browser = tk.BooleanVar(value=False)
+        self.animations = tk.BooleanVar(value=not self.motion.reduced)
+        self.persist_preferences = load_saved
 
         header = ctk.CTkFrame(self, fg_color='transparent')
         header.grid(row=0, column=0, sticky='ew', padx=28, pady=(22, 18))
@@ -110,22 +120,25 @@ class CampusWindow(ctk.CTk):
         settings = ctk.CTkFrame(surface, fg_color='transparent')
         settings.grid(row=0, column=2, sticky='nsew', padx=24, pady=22)
         settings.grid_columnconfigure(0, weight=1)
-        self.label(settings, '连接偏好', 16, INK).grid(row=0, column=0, sticky='w', pady=(0, 23))
+        self.label(settings, '连接偏好', 16, INK).grid(row=0, column=0, sticky='w', pady=(0, 16))
         self.autostart_switch = MotionSwitch(settings, self.motion, '开机自动连接', self.autostart)
         self.autostart_switch.grid(row=1, column=0, sticky='ew')
-        self.label(settings, '登录 Windows 后在后台运行', 11).grid(row=2, column=0, sticky='w', pady=(7, 23))
+        self.label(settings, '登录 Windows 后在后台运行', 11).grid(row=2, column=0, sticky='w', pady=(5, 13))
         self.browser_switch = MotionSwitch(settings, self.motion, '显示登录浏览器', self.show_browser)
         self.browser_switch.grid(row=3, column=0, sticky='ew')
-        self.label(settings, '测试时查看校园网页面提示', 11).grid(row=4, column=0, sticky='w', pady=(7, 24))
-        ctk.CTkFrame(settings, height=1, fg_color='#ECEEF1').grid(row=5, column=0, sticky='ew', pady=(0, 21))
+        self.label(settings, '测试时查看校园网页面提示', 11).grid(row=4, column=0, sticky='w', pady=(5, 13))
+        self.animation_switch = MotionSwitch(settings, self.motion, '界面动效', self.animations)
+        self.animation_switch.grid(row=5, column=0, sticky='ew')
+        self.label(settings, '开关、按钮和连接提示的过渡', 11).grid(row=6, column=0, sticky='w', pady=(5, 13))
+        ctk.CTkFrame(settings, height=1, fg_color='#ECEEF1').grid(row=7, column=0, sticky='ew', pady=(0, 13))
         self.state_badge = ctk.CTkLabel(settings, text='等待配置', text_color=SECONDARY,
                                       fg_color='#EDF1F6', corner_radius=4, height=28, width=116, font=(FONT, 12))
-        self.state_badge.grid(row=6, column=0, sticky='w')
+        self.state_badge.grid(row=8, column=0, sticky='w')
         self.state_hint = self.label(settings, '填好账号后，点击下方按钮测试连接。', 12, wraplength=228, justify='left')
-        self.state_hint.grid(row=7, column=0, sticky='w', pady=(10, 0))
+        self.state_hint.grid(row=9, column=0, sticky='w', pady=(9, 0))
         self.progress = ctk.CTkProgressBar(settings, mode='indeterminate', height=3, corner_radius=0,
                                         fg_color='#E8EDF4', progress_color=BLUE, indeterminate_speed=1.1)
-        self.progress.grid(row=8, column=0, sticky='ew', pady=(13, 0))
+        self.progress.grid(row=10, column=0, sticky='ew', pady=(10, 0))
         self.progress.grid_remove()
 
         activity = ctk.CTkFrame(self, fg_color='transparent')
@@ -183,6 +196,7 @@ class CampusWindow(ctk.CTk):
         self.messages.put('请先连接校园 Wi-Fi，或插入校园网网线。')
         self.username.trace_add('write', lambda *_: self.clear_field_error('username'))
         self.password.trace_add('write', lambda *_: self.clear_field_error('password'))
+        self.animations.trace_add('write', self.on_motion_changed)
         self.bind('<Return>', lambda _: self.test())
         self.bind('<Escape>', lambda _: self.hide_notice())
         self.bind('<FocusOut>', self.on_window_blur, add='+')
@@ -205,6 +219,24 @@ class CampusWindow(ctk.CTk):
     def bind_field_focus(self, entry, border, name):
         entry.bind('<FocusIn>', lambda _: self.motion.color(border, 'border_color', ERROR if name in self.invalid_fields else BLUE, 140))
         entry.bind('<FocusOut>', lambda _: self.motion.color(border, 'border_color', ERROR if name in self.invalid_fields else LINE, 140))
+
+    def on_motion_changed(self, *_):
+        self.motion.set_reduced(not self.animations.get())
+        if self.busy and not self.motion.reduced:
+            self.progress.grid()
+            self.progress.start()
+        else:
+            self.progress.stop()
+            self.progress.grid_remove()
+        if self.persist_preferences:
+            try:
+                self.api.DATA.mkdir(parents=True, exist_ok=True)
+                path = self.api.DATA / 'ui-preferences.json'
+                temp = path.with_suffix('.tmp')
+                temp.write_text(json.dumps({'animations': self.animations.get()}), encoding='utf-8')
+                temp.replace(path)
+            except OSError:
+                self.show_notice('动效已切换，但偏好暂时无法保存。')
 
     def clear_field_error(self, name):
         if name in self.invalid_fields:

@@ -452,6 +452,8 @@ def main():
         window.update_idletasks()
         report = {'ui_loaded': True, 'icon_loaded': Path(window.icon_path).is_file(),
                   'animated_controls_loaded': True, 'reduced_motion': window.motion.reduced}
+        window.animations.set(True)
+        report['motion_override_works'] = not window.motion.reduced
         window.destroy()
         Path(args.check_ui).write_text(json.dumps(report), encoding='utf-8')
         return

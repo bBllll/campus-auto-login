@@ -70,6 +70,19 @@ class MotionTests(unittest.TestCase):
         self.assertEqual(frames, [0])
         self.assertFalse(root.queue)
 
+    def test_disabling_motion_settles_active_animation_and_preserves_timers(self):
+        root = ClockRoot()
+        motion = Motion(root, reduced=False, clock=lambda: root.time)
+        frames, calls = [], []
+        motion.animate('hover', frames.append)
+        motion.later('notice', 6000, lambda: calls.append('dismiss'))
+        root.advance(40)
+        motion.set_reduced(True)
+        self.assertEqual(frames[-1], 1)
+        self.assertEqual(len(root.queue), 1)
+        root.advance(6000)
+        self.assertEqual(calls, ['dismiss'])
+
 
 class InteractionTests(unittest.TestCase):
     def make_window(self):
@@ -89,6 +102,17 @@ class InteractionTests(unittest.TestCase):
         window.autostart_switch.set_enabled(False)
         window.autostart_switch.toggle()
         self.assertFalse(window.autostart.get())
+
+    def test_app_motion_switch_can_override_system_preference(self):
+        window = self.make_window()
+        window.animations.set(True)
+        self.assertFalse(window.motion.reduced)
+        window.set_busy(True)
+        self.assertTrue(window.progress._loop_running)
+        window.animations.set(False)
+        self.assertTrue(window.motion.reduced)
+        self.assertFalse(window.progress._loop_running)
+        window.set_busy(False)
 
     def test_busy_blocks_duplicate_login_and_close_waits_for_task_cleanup(self):
         window = self.make_window()
