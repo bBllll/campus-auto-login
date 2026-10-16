@@ -442,7 +442,19 @@ def gui():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--auto',action='store_true')
+    parser.add_argument('--check-ui', metavar='REPORT', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.check_ui:
+        # Noninteractive bundle validation: no credentials loaded, no login or writes to startup.
+        from desktop_ui import CampusWindow
+        window = CampusWindow(sys.modules[__name__], load_saved=False)
+        window.withdraw()
+        window.update_idletasks()
+        report = {'ui_loaded': True, 'icon_loaded': Path(window.icon_path).is_file(),
+                  'animated_controls_loaded': True, 'reduced_motion': window.motion.reduced}
+        window.destroy()
+        Path(args.check_ui).write_text(json.dumps(report), encoding='utf-8')
+        return
     if not args.auto:
         gui()
         return

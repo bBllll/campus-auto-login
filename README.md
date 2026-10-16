@@ -9,6 +9,8 @@
 ## 功能
 
 - Material 风格的浅色中文界面，支持密码显示、连接状态提示和独立运行记录。
+- 焦点、按钮和状态使用短时缓动过渡；开关平滑滑动，连接中显示不确定进度，不显示虚构百分比。
+- 动画遵循 Windows 动画设置；错误使用窗口内提示，日志翻看时不强制跳到底部。
 - 配置账号、密码及运营商，支持高 DPI 显示。
 - 独立应用图标，含 Windows 16–256 像素多尺寸图标。
 - 登录 Windows 后在后台运行，最多等待校园网络就绪 10 分钟。
@@ -101,7 +103,7 @@ python campus_auto_login.py --auto
 
 ```powershell
 python -m pip install -r requirements-build.txt
-python -m PyInstaller --noconfirm --clean --onefile --windowed --collect-all customtkinter --add-data "assets;assets" --icon assets/app-icon.ico --name CampusAutoLogin campus_auto_login.py
+python -m PyInstaller --noconfirm --clean --onefile --windowed --collect-all customtkinter --exclude-module numpy --add-data "assets;assets" --icon assets/app-icon.ico --version-file packaging/windows-version.txt --name CampusAutoLogin campus_auto_login.py
 ```
 
 生成文件为 `dist/CampusAutoLogin.exe`。它依赖系统已有的 Edge/Chrome，不需要额外安装 Python。
