@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <title>校园网</title>
+  <style>__APP_STYLES__</style>
+</head>
+<body data-busy="false">
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+    <symbol id="i-connect" viewBox="0 0 24 24"><path d="M4 9a12 12 0 0 1 16 0M7 13a7.5 7.5 0 0 1 10 0M10 17a3 3 0 0 1 4 0"/><circle cx="12" cy="20" r=".5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><path d="M8 3v6m8 0v6M9 15v6"/></symbol>
+    <symbol id="i-log" viewBox="0 0 24 24"><path d="M5 3h14v18H5zM9 7h6M9 12h6M9 17h4"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  </defs></svg>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><img src="__CAMPUS_APP_ICON__" alt="校园网图标"><div><strong>校园网</strong><span>Campus Auto Login</span></div></div>
+      <nav aria-label="主导航">
+        <button class="nav-item active" data-view="connection" aria-current="page"><svg><use href="#i-connect"/></svg>网络连接</button>
+        <button class="nav-item" data-view="preferences"><svg><use href="#i-sliders"/></svg>偏好设置</button>
+        <button class="nav-item" data-view="activity"><svg><use href="#i-log"/></svg>运行记录<span id="log-badge" class="nav-count">0</span></button>
+      </nav>
+      <div class="sidebar-bottom"><svg><use href="#i-shield"/></svg><span>账号仅在本机加密保存</span><small>Campus Auto Login <b id="version">2.0.0</b></small></div>
+    </aside>
+    <main>
+      <header class="page-header"><div><p class="eyebrow">CAMPUS NETWORK</p><h1 id="page-title">网络连接</h1><p id="page-description">管理校园网账号与自动连接。</p></div><div id="top-status" class="status-chip"><span class="status-dot"></span><span id="chip-text">等待连接</span></div></header>
+      <section id="view-connection" class="view" aria-label="网络连接">
+        <div class="connection-grid">
+          <section class="card account-card">
+            <div class="card-heading"><div><h2>登录校园网</h2><p>填写一次，下次开机自动连接。</p></div><span class="section-number">01</span></div>
+            <form id="account-form" novalidate autocomplete="off">
+              <label for="username">校园网账号</label>
+              <input id="username" name="username" type="text" placeholder="输入学号或校园网账号" maxlength="256" spellcheck="false" autocomplete="off" required>
+              <div class="field-heading"><label for="password">密码</label><span id="password-saved" class="saved-marker" hidden><svg><use href="#i-check"/></svg>已加密保存</span></div>
+              <div class="password-field"><input id="password" name="password" type="password" placeholder="输入校园网密码" maxlength="1024" autocomplete="new-password"><button id="reveal-password" type="button" aria-label="显示新输入的密码" aria-pressed="false"><svg><use href="#i-eye"/></svg></button></div>
+              <p id="password-note" class="field-note">密码通过 Windows 加密后保存在本机。</p>
+              <label for="operator">运营商</label>
+              <select id="operator" name="operator"><option value="">使用网页默认</option><option>中国移动</option><option>中国电信</option><option>中国联通</option><option>教师专用</option></select>
+              <p class="field-note">选择与你的校园网账号对应的运营商。</p>
+              <p id="form-error" class="form-error" role="alert" hidden></p>
+              <div class="form-actions"><button id="connect-button" class="button primary" type="submit"><span>保存并连接</span><svg><use href="#i-arrow"/></svg></button><button id="save-button" class="button secondary" type="button">仅保存设置</button></div>
+            </form>
+          </section>
+          <div class="right-column">
+            <section class="card network-card" id="network-card" data-kind="idle" aria-live="polite">
+              <div class="card-label">连接状态<button class="icon-button" id="check-button" aria-label="重新检查网络"><svg><use href="#i-refresh"/></svg></button></div>
+              <div class="network-emblem"><svg><use href="#i-connect"/></svg><span class="emblem-node"></span></div>
+              <h2 id="status-title">等待连接</h2><p id="status-detail">正在加载本机配置…</p><div class="busy-indicator" aria-hidden="true"></div>
+              <div class="status-caption"><span class="status-dot"></span><span id="status-caption">连接前请接入校园 Wi-Fi 或网线</span></div>
+            </section>
+            <section class="card quick-settings"><div class="card-label">连接偏好<button class="text-button" data-go="preferences">全部设置 <span>→</span></button></div>
+              <label class="setting-row"><span><strong>开机自动连接</strong><small>登录 Windows 后后台检查</small></span><span class="switch"><input id="autostart" type="checkbox"><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+              <label class="setting-row"><span><strong>显示登录浏览器</strong><small>连接时查看校园网页面</small></span><span class="switch"><input id="show-browser" type="checkbox"><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+            </section>
+          </div>
+        </div>
+        <section class="recent-activity"><div class="activity-heading"><h2>最近运行</h2><button class="text-button" data-go="activity">查看全部记录 <span>→</span></button></div><div id="recent-logs" class="recent-list"><p class="empty-recent">连接与检测的结果会显示在这里。</p></div></section>
+      </section>
+      <section id="view-preferences" class="view" aria-label="偏好设置" hidden>
+        <section class="card preferences-card"><h2>界面与连接</h2><p class="muted">连接偏好可在网络连接页调整，点击保存后生效。</p>
+          <label class="setting-row roomy"><span><strong>界面动效</strong><small>按钮过渡、状态反馈与开关滑动，即时生效。</small></span><span class="switch"><input id="motion" type="checkbox"><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <div class="info-row"><svg><use href="#i-connect"/></svg><div><strong>开机后检查约 10 分钟</strong><p>即使刚开机时能上网，也会继续检查网络变化。每次任务最多提交一次登录。</p></div></div>
+          <div class="info-row"><svg><use href="#i-shield"/></svg><div><strong>密码由 Windows 加密保存</strong><p>网页界面不会读取已保存的密码。密码框留空时，后台会保留当前账号的原密码。</p></div></div>
+        </section>
+        <section class="card data-card"><div><h2>本机账号</h2><p>清除已保存的账号密码，同时关闭开机自动连接。</p></div><button id="clear-button" class="button danger">清除本机配置</button></section>
+        <p class="page-footnote">当前版本 <span class="version-label">2.0.0</span> · 仅使用本机页面资源</p>
+      </section>
+      <section id="view-activity" class="view" aria-label="运行记录" hidden>
+        <section class="card log-card"><div class="activity-heading"><div><h2>运行记录</h2><p>本次打开后的连接、检测与设置操作。</p></div><span id="log-total" class="subtle-badge">0 条记录</span></div><div id="log-scroll" tabindex="0" aria-label="运行记录列表"><div id="log-list" role="log" aria-live="polite"><div class="empty-state"><svg><use href="#i-log"/></svg><h3>还没有运行记录</h3><p>开始一次连接，或检查当前网络状态。</p></div></div></div><button id="new-logs" class="button secondary new-logs" hidden>查看新记录 ↓</button><div class="log-footer"><span>最多保留 500 条</span><span>不记录账号或密码</span></div></section>
+      </section>
+      <footer class="main-footer"><span id="save-hint">填写信息后，点击保存并连接。</span><span class="footer-mark">校园网 · 自动连接</span></footer>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="dismiss-toast" aria-label="关闭提示">×</button></div>
+  <script>__APP_SCRIPT__</script>
+</body>
+</html>

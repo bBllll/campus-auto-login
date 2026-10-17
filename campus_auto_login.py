@@ -19,11 +19,12 @@ import urllib.request
 import winreg
 
 import websocket
+from portal_config import load_portal, save_portal
 
-PORTAL = 'http://10.0.253.14/?url=http://www.msftconnecttest.com/redirect'
-HOST = '10.0.253.14'
-APP_ID = 'CampusAutoLogin_10_0_253_14'
+APP_ID = 'CampusAutoLogin'
 DATA = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / APP_ID
+PORTAL = load_portal(DATA)
+HOST = urllib.parse.urlsplit(PORTAL).hostname or ''
 VAULT = DATA / 'account.dat'
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -117,8 +118,11 @@ def browser_path():
 
 
 def portal_reachable():
+    if not HOST:
+        return False
     try:
-        with socket.create_connection((HOST, 80), timeout=3):
+        port = 443 if urllib.parse.urlsplit(PORTAL).scheme == 'https' else 80
+        with socket.create_connection((HOST, port), timeout=3):
             return True
     except OSError:
         return False
@@ -136,8 +140,12 @@ def online():
 
 def campus_online():
     """Read-only status endpoint observed in the campus portal's a41.js."""
+    if not HOST:
+        return False
     try:
-        with OPENER.open('http://' + HOST + '/drcom/chkstatus?callback=campusStatus', timeout=3) as r:
+        target = urllib.parse.urlsplit(PORTAL)
+        origin = urllib.parse.urlunsplit((target.scheme, target.netloc, '', '', ''))
+        with OPENER.open(origin + '/drcom/chkstatus?callback=campusStatus', timeout=3) as r:
             if urllib.parse.urlsplit(r.url).hostname != HOST:
                 return False
             text = r.read(65536).decode('utf-8', errors='replace')
@@ -267,7 +275,9 @@ const setValue = (e,v) => {
 """
 
 
-def dom_script(action, account=None, allowed_host=HOST):
+def dom_script(action, account=None, allowed_host=None):
+    if allowed_host is None:
+        allowed_host = HOST
     config = json.dumps({'action': action, 'account': account or {}, 'allowedHost': allowed_host}, ensure_ascii=True)
     return '(async () => { const {action,account,allowedHost} = ' + config + ';' + DOM_HELPERS + r"""
 if (!docs.length) return {status:'wrong-origin'};
@@ -341,26 +351,82 @@ ERRORS = {
 }
 
 
+def watch_startup_network(log, internet_check=online, timeout=600, interval=15):
+    """Watch boot-time network changes; None means one login attempt is needed."""
+    if timeout <= 0 or interval <= 0:
+        raise ValueError('Startup watch timeout and interval must be positive')
+    deadline = time.monotonic() + timeout
+    previous = None
+    messages = {
+        'internet': '当前可访问互联网，继续监测开机网络变化。',
+        'campus': '校园认证显示已在线，继续监测；外网探测暂未通过。',
+        'waiting': '等待校园网络就绪，继续监测。',
+    }
+    log('开机自动连接已启动，将监测网络变化约 10 分钟。')
+    while True:
+        if internet_check():
+            state = 'internet'
+        elif campus_online():
+            state = 'campus'
+        elif portal_reachable():
+            # Network state may recover while the portal probe is running.
+            if internet_check():
+                state = 'internet'
+            elif campus_online():
+                state = 'campus'
+            else:
+                log('检测到需要校园网认证，开始一次登录。')
+                return None
+        else:
+            state = 'waiting'
+        if state != previous:
+            log(messages[state])
+            previous = state
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(interval, remaining))
+    endings = {
+        'internet': '开机监测结束，外网连通性验证通过。',
+        'campus': '开机监测结束，校园认证已在线；外网探测暂未通过。',
+        'waiting': '开机监测结束，校园网络尚未就绪。',
+    }
+    log(endings[state])
+    return state != 'waiting'
+
+
 def run_login(account, log, auto=False, visible=False, internet_check=online):
+    if not HOST:
+        raise RuntimeError('尚未配置校园网登录地址，请先使用 --set-portal 保存登录页地址。')
+    if auto:
+        startup_result = watch_startup_network(log, internet_check)
+        if startup_result is not None:
+            return startup_result
+    elif internet_check():
+        log('当前已能访问互联网，无需重复登录。')
+        return True
+    elif campus_online():
+        log('校园认证显示已登录；外网探测未通过，跳过重复认证。')
+        return True
+    elif not portal_reachable():
+        raise RuntimeError('无法访问已配置的校园登录服务器，请先连接校园网络并检查代理或路由。')
+    handle = exclusive_run(scope='login')
+    if handle is None:
+        raise RuntimeError('已有连接任务正在处理，请稍后重试。')
+    try:
+        return submit_login(account, log, visible, internet_check)
+    finally:
+        release_run(handle)
+
+
+def submit_login(account, log, visible, internet_check):
+    # Recheck under the shared login lock before starting a browser.
     if internet_check():
         log('当前已能访问互联网，无需重复登录。')
         return True
     if campus_online():
         log('校园认证显示已登录；外网探测未通过，跳过重复认证。')
         return True
-    if auto:
-        log('等待校园网络就绪，最长 10 分钟。')
-        deadline = time.monotonic() + 600
-        while not portal_reachable():
-            if time.monotonic() >= deadline:
-                log('未连接到校园登录服务器，本次自动登录结束。')
-                return False
-            time.sleep(15)
-            if internet_check():
-                log('网络已连接。')
-                return True
-    elif not portal_reachable():
-        raise RuntimeError('无法访问 10.0.253.14，请先连接校园 Wi-Fi 或校园网网线，并检查 VPN/代理。')
     log('正在打开校园网登录页……')
     with Browser(visible=visible) as browser:
         browser.call('Page.enable')
@@ -390,6 +456,12 @@ def run_login(account, log, auto=False, visible=False, internet_check=online):
         if result.get('status') != 'carrier-ready':
             raise RuntimeError(ERRORS.get(result.get('status'), '无法选择运营商。'))
         time.sleep(.8)
+        if internet_check():
+            log('网络已恢复，无需提交登录。')
+            return True
+        if campus_online():
+            log('校园认证已恢复，跳过重复认证。')
+            return True
         log('正在填写账号并提交登录……')
         result = browser.evaluate(dom_script('submit', account))
         if result.get('status') != 'submitted':
@@ -418,13 +490,15 @@ def log_file(message):
         f.write(time.strftime('%Y-%m-%d %H:%M:%S ') + message + '\n')
 
 
-def exclusive_run():
+def exclusive_run(scope='auto'):
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
     kernel.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
     kernel.CreateMutexW.restype = wintypes.HANDLE
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     username = os.environ.get('USERNAME', '')
     name = APP_ID + '_' + hashlib.sha256(username.encode()).hexdigest()[:12]
+    if scope == 'login':
+        name += '_login'
     handle = kernel.CreateMutexW(None, False, 'Local\\' + name)
     if not handle:
         raise ctypes.WinError(ctypes.get_last_error())
@@ -434,8 +508,12 @@ def exclusive_run():
     return handle
 
 
+def release_run(handle):
+    ctypes.windll.kernel32.CloseHandle(wintypes.HANDLE(handle))
+
+
 def gui():
-    from desktop_ui import launch
+    from web_ui import launch
     launch(sys.modules[__name__])
 
 
@@ -443,19 +521,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--auto',action='store_true')
     parser.add_argument('--check-ui', metavar='REPORT', help=argparse.SUPPRESS)
+    parser.add_argument('--set-portal', metavar='URL', help='Save the campus login page URL to a local configuration file')
     args = parser.parse_args()
+    if args.set_portal is not None:
+        try:
+            save_portal(DATA, args.set_portal)
+        except ValueError as error:
+            parser.error(str(error))
+        print('校园网登录地址已保存到本机。重新打开程序后生效。')
+        return
     if args.check_ui:
         # Noninteractive bundle validation: no credentials loaded, no login or writes to startup.
-        from desktop_ui import CampusWindow
-        window = CampusWindow(sys.modules[__name__], load_saved=False)
-        window.withdraw()
-        window.update_idletasks()
-        report = {'ui_loaded': True, 'icon_loaded': Path(window.icon_path).is_file(),
-                  'animated_controls_loaded': True, 'reduced_motion': window.motion.reduced}
-        window.animations.set(True)
-        report['motion_override_works'] = not window.motion.reduced
-        window.destroy()
-        Path(args.check_ui).write_text(json.dumps(report), encoding='utf-8')
+        from web_ui import launch
+        launch(sys.modules[__name__], check_report=args.check_ui)
         return
     if not args.auto:
         gui()
@@ -464,6 +542,7 @@ def main():
     if handle is None:
         return
     try:
+        log_file('已进入开机自动连接任务。')
         account = load_account()
         if not account:
             log_file('尚未配置账号，请先打开程序完成设置。')
@@ -472,7 +551,7 @@ def main():
     except Exception as e:
         log_file(str(e) if isinstance(e, RuntimeError) else '自动登录未完成，请打开程序测试。')
     finally:
-        ctypes.windll.kernel32.CloseHandle(wintypes.HANDLE(handle))
+        release_run(handle)
 
 
 if __name__ == '__main__':

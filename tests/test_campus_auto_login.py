@@ -9,6 +9,9 @@ import campus_auto_login as app
 
 class HelperTests(unittest.TestCase):
     def setUp(self):
+        host_patcher = patch.object(app, 'HOST', 'portal.example.invalid')
+        host_patcher.start()
+        self.addCleanup(host_patcher.stop)
         patcher = patch.object(app, 'campus_online', return_value=False)
         self.campus = patcher.start()
         self.addCleanup(patcher.stop)
@@ -55,39 +58,23 @@ class HelperTests(unittest.TestCase):
             self.assertEqual(sum('"action": "submit"' in js for js in actions), 1)
 
     def test_gui_constructs_with_configuration_controls(self):
-        from desktop_ui import CampusWindow
-        window = CampusWindow(app, load_saved=False)
-        try:
-            window.after(300, window.quit)
-            window.mainloop()
-            self.assertEqual(window.test_button.cget('text'), '保存并连接')
-            self.assertEqual(window.save_button.cget('text'), '保存设置')
-            self.assertIn('中国移动', window.operator_entry.cget('values'))
-            self.assertEqual(window.password_entry.cget('show'), '●')
-            self.assertGreater(window.account_entry.winfo_width(), 200)
-            self.assertLess(window.test_button.winfo_rootx() + window.test_button.winfo_width(), window.winfo_rootx() + window.winfo_width())
-            self.assertLess(window.operator_entry.winfo_rooty() + window.operator_entry.winfo_height(), window.status.winfo_rooty())
-        finally:
-            window.destroy()
+        from web_ui import render_page
+        page = render_page()
+        self.assertIn('保存并连接', page)
+        self.assertIn('中国移动', page)
+        self.assertIn('id="password" name="password" type="password"', page)
+        self.assertNotIn('__APP_SCRIPT__', page)
 
     def test_password_visibility_and_saving_preferences(self):
-        from desktop_ui import CampusWindow
-        with patch.object(app, 'save_account') as save, patch.object(app, 'set_startup') as startup, patch.object(app, 'log_file'):
-            window = CampusWindow(app, load_saved=False)
-            try:
-                window.username.set('fake-ui-user')
-                window.password.set('fake-ui-password')
-                window.operator.set('中国联通')
-                window.toggle_password()
-                self.assertEqual(window.password_entry.cget('show'), '')
-                window.toggle_password()
-                self.assertEqual(window.password_entry.cget('show'), '●')
-                window.autostart.set(False)
-                window.save()
-                save.assert_called_once_with({'username':'fake-ui-user','password':'fake-ui-password','operator':'中国联通'})
-                startup.assert_called_once_with(False)
-            finally:
-                window.destroy()
+        from web_ui import Controller, Bridge
+        with tempfile.TemporaryDirectory() as temporary, patch.object(app, 'DATA', Path(temporary)), patch.object(app, 'save_account') as save, patch.object(app, 'set_startup') as startup, patch.object(app, 'log_file'):
+            bridge = Bridge(Controller(app, load_saved=False))
+            result = bridge.save_settings({'username': 'fake-ui-user', 'password': 'fake-ui-password', 'operator': '中国联通',
+                                           'autostart': False, 'show_browser': False, 'motion': True})
+            self.assertTrue(result['ok'])
+            save.assert_called_once_with({'username':'fake-ui-user','password':'fake-ui-password','operator':'中国联通'})
+            startup.assert_called_once_with(False)
+            self.assertNotIn('fake-ui-password', json.dumps(bridge.get_state()))
 
 
 class BrowserTests(unittest.TestCase):
@@ -134,7 +121,7 @@ class BrowserTests(unittest.TestCase):
 
     def test_wrong_origin_stops(self):
         self.load('<input name="username"><input type="password"><button>登录</button>')
-        result = self.browser.evaluate(app.dom_script('submit',{'username':'fake','password':'fake'}))
+        result = self.browser.evaluate(app.dom_script('submit',{'username':'fake','password':'fake'}, allowed_host='portal.example.invalid'))
         self.assertEqual(result['status'],'wrong-origin')
         self.assertEqual(self.browser.evaluate('document.querySelector("input[type=password]").value'),'')
 

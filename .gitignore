@@ -5,6 +5,7 @@ venv/
 build/
 dist/
 *.spec
+!packaging/CampusAutoLogin.spec
 *.exe
 *.zip
 *.log
@@ -15,6 +16,7 @@ dist/
 account.json
 credentials.json
 config.json
+portal.json
 ui-preferences.json
 DevToolsActivePort
 campus-login-*/

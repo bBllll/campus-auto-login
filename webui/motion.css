@@ -1,0 +1,124 @@
+/* motion.css — 仅动效层；静态布局、色彩、开关位置与常态透明度由主 CSS 负责 */
+
+:root {
+  --motion-ui: 160ms;
+  --motion-in: 180ms;
+  --motion-out: 140ms;
+  --motion-page: 200ms;
+  --motion-ease: cubic-bezier(.2, 0, 0, 1);
+}
+
+/* 交互控件过渡：只过渡颜色、阴影、透明度和位移，不改尺寸 */
+.button,
+.card,
+.switch-track,
+.switch-thumb,
+.status-dot {
+  transition-duration: var(--motion-ui);
+  transition-timing-function: var(--motion-ease);
+  transition-property: background-color, border-color, color, box-shadow, opacity, transform, translate;
+}
+
+/* 键盘焦点始终清晰 */
+body :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring, #1a73e8);
+  outline-offset: 2px;
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--focus-ring, #1a73e8);
+  outline-offset: 2px;
+}
+
+/* 初次进入：仅淡入，避免影响 fixed 定位与布局 */
+.app-shell {
+  animation: page-in var(--motion-page) var(--motion-ease) both;
+}
+
+@keyframes page-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* busy：细线只在忙碌时横向循环，不旋转 */
+body[data-busy="true"] .busy-indicator::after {
+  animation: busy-line 1.15s linear infinite;
+}
+
+@keyframes busy-line {
+  from { translate: -120% 0; }
+  to { translate: 420% 0; }
+}
+
+body[data-busy="true"] .status-dot {
+  animation: status-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes status-breathe {
+  0%, 100% { opacity: 1; scale: 1; }
+  50% { opacity: .6; scale: 1.1; }
+}
+
+/* Toast：JS 加 .is-visible 进入；离场加 .is-leaving，140ms 后移除两者 */
+.toast.is-visible {
+  animation: toast-in var(--motion-in) var(--motion-ease) both;
+}
+
+.toast.is-leaving {
+  animation: toast-out var(--motion-out) ease-in both;
+  pointer-events: none;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; translate: 0 8px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; translate: 0 0; }
+  to { opacity: 0; translate: 0 6px; }
+}
+
+/* 仅新增日志行标记 .is-new 后播放一次；历史行不加类，避免整列重播 */
+.log-entry.is-new {
+  animation: log-in var(--motion-ui) var(--motion-ease) both;
+}
+
+@keyframes log-in {
+  from { opacity: 0; translate: 0 3px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+/* 关闭动效：立即停掉所有动画/过渡，并保证主要内容不会停在透明态 */
+body[data-motion="off"],
+body[data-motion="off"] *,
+body[data-motion="off"] *::before,
+body[data-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+body[data-motion="off"] :where(.app-shell, .log-entry),
+body[data-motion="off"] .toast.is-visible {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+/* 未显式开启时遵循系统减少动画；data-motion="on" 可覆盖 */
+@media (prefers-reduced-motion: reduce) {
+  body:not([data-motion="on"]),
+  body:not([data-motion="on"]) *,
+  body:not([data-motion="on"]) *::before,
+  body:not([data-motion="on"]) *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  body:not([data-motion="on"]) :where(.app-shell, .log-entry),
+  body:not([data-motion="on"]) .toast.is-visible {
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+}
